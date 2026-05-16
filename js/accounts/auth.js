@@ -20,7 +20,20 @@ export class AuthManager {
         }
 
         try {
-            const { data: session } = await authClient.getSession();
+            // FIX: Surround call to auth.monochrome.tf with try/catch
+            // If it fails (CORS/502), proceed in disconnected mode
+            let session = null;
+            try {
+                const response = await authClient.getSession();
+                if (response && response.error) {
+                    console.warn('Auth server returned an error, ignoring:', response.error);
+                } else if (response && response.data) {
+                    session = response.data;
+                }
+            } catch (fetchErr) {
+                console.warn('Network or CORS error connecting to auth.monochrome.tf:', fetchErr);
+            }
+
             this.user = normalizeUser(session?.user);
             this.updateUI(this.user);
             this.authListeners.forEach((listener) => listener(this.user));

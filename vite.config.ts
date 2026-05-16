@@ -66,6 +66,18 @@ export default defineConfig((_options) => {
                 // host: true,
                 // allowedHosts: ['<your_tailscale_hostname>'], // e.g. pi5.tailf5f622.ts.net
             },
+            proxy: {
+                '/api/stream': {
+                    target: 'https://monochrome.tf',
+                    changeOrigin: true,
+                    secure: false,
+                },
+                '/functions': {
+                    target: 'https://monochrome.tf',
+                    changeOrigin: true,
+                    secure: false,
+                }
+            }
         },
         // preview: {
         //     host: true,
