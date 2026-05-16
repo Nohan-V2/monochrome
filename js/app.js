@@ -1075,7 +1075,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     });
 
                     Player.instance.setQueue(sortedTracks, 0);
-                    Player.instance.enableAutoplay();
                     const shuffleBtn = document.getElementById('shuffle-btn');
                     if (shuffleBtn) shuffleBtn.classList.remove('active');
                     Player.instance.shuffleActive = false;
@@ -1107,7 +1106,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (tracks && tracks.length > 0) {
                     const shuffledTracks = [...tracks].sort(() => Math.random() - 0.5);
                     Player.instance.setQueue(shuffledTracks, 0);
-                    Player.instance.enableAutoplay();
                     const shuffleBtn = document.getElementById('shuffle-btn');
                     if (shuffleBtn) shuffleBtn.classList.remove('active');
                     Player.instance.shuffleActive = false;
@@ -1176,7 +1174,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 const shuffledTracks = [...allTracks].sort(() => Math.random() - 0.5);
                 Player.instance.setQueue(shuffledTracks, 0);
-                Player.instance.enableAutoplay();
                 const shuffleBtn = document.getElementById('shuffle-btn');
                 if (shuffleBtn) shuffleBtn.classList.remove('active');
                 Player.instance.shuffleActive = false;
