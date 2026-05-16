@@ -391,7 +391,7 @@ export async function initializePlayerEvents(player, audioPlayer, scrobbler, ui)
     let _previousTrackId = null;
     let _trackPlayStartTime = null;
 
-    const setupMediaListeners = (element) => {
+    player.setupMediaListeners = (element) => {
         element.addEventListener('loadstart', () => {
             if (player.activeElement === element) {
                 historyLoggedTrackId = null;
@@ -552,9 +552,9 @@ export async function initializePlayerEvents(player, audioPlayer, scrobbler, ui)
 
     window.addEventListener('volume-change', updateVolumeUI);
 
-    setupMediaListeners(audioPlayer);
+    player.setupMediaListeners(audioPlayer);
     if (player.video) {
-        setupMediaListeners(player.video);
+        player.setupMediaListeners(player.video);
     }
 
     playPauseBtn.addEventListener('click', async () => {

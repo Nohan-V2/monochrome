@@ -5,6 +5,7 @@
     "description": "[<img src=\"https://github.com/monochrome-music/monochrome/blob/main/assets/512.png?raw=true\" alt=\"Monochrome Logo\">](https://monochrome.tf)",
     "scripts": {
         "dev": "vite",
+        "dev:network": "vite --mode network",
         "test": "vitest run --config=vite.config.ts",
         "test:headless": "HEADLESS=true vitest run --config=vite.config.ts",
         "test:watch": "vitest --config=vite.config.ts",

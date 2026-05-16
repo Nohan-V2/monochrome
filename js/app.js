@@ -299,6 +299,9 @@ function initializeKeyboardShortcuts(player, _audioPlayer) {
                 UIRenderer.instance.visualizer.presets['butterchurn'].toggleCycle();
             }
         },
+        favorite: () => {
+            document.getElementById('now-playing-like-btn')?.click();
+        },
     };
 
     document.addEventListener('keydown', (e) => {

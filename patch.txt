@@ -1,0 +1,178 @@
+﻿diff --git a/js/accounts/auth.js b/js/accounts/auth.js
+index 9eae72c..c99639b 100644
+--- a/js/accounts/auth.js
++++ b/js/accounts/auth.js
+@@ -20,7 +20,20 @@ export class AuthManager {
+         }
+ 
+         try {
+-            const { data: session } = await authClient.getSession();
++            // FIX: Surround call to auth.monochrome.tf with try/catch
++            // If it fails (CORS/502), proceed in disconnected mode
++            let session = null;
++            try {
++                const response = await authClient.getSession();
++                if (response && response.error) {
++                    console.warn('Auth server returned an error, ignoring:', response.error);
++                } else if (response && response.data) {
++                    session = response.data;
++                }
++            } catch (fetchErr) {
++                console.warn('Network or CORS error connecting to auth.monochrome.tf:', fetchErr);
++            }
++
+             this.user = normalizeUser(session?.user);
+             this.updateUI(this.user);
+             this.authListeners.forEach((listener) => listener(this.user));
+diff --git a/js/player.js b/js/player.js
+index 0778490..16a8e68 100644
+--- a/js/player.js
++++ b/js/player.js
+@@ -97,10 +97,16 @@ export class Player {
+         this.audio.addEventListener('canplay', () => {
+             this.applyAudioEffects();
+         });
++        this.audio.addEventListener('ended', () => {
++            this.handleTrackEnded();
++        });
+         if (this.video) {
+             this.video.addEventListener('canplay', () => {
+                 this.applyAudioEffects();
+             });
++            this.video.addEventListener('ended', () => {
++                this.handleTrackEnded();
++            });
+         }
+ 
+         const waitForImagesLoading = () => {
+@@ -563,19 +569,27 @@ export class Player {
+     }
+ 
+     async _executePreloadNextTracks() {
++        const currentQueue = this.getCurrentQueue();
++        const nextIndex = this.currentQueueIndex + 1;
++        const nextTrack = nextIndex < currentQueue.length ? currentQueue[nextIndex] : null;
++
+         if (this.preloadAbortController) {
++            if (this._preloadingTrackId === nextTrack?.id) {
++                // Already preloading the correct next track, do not abort
++                return;
++            }
+             this.preloadAbortController.abort();
+         }
+ 
++        this._preloadingTrackId = nextTrack?.id;
+         this.preloadAbortController = new AbortController();
+-        const currentQueue = this.shuffleActive ? this.shuffledQueue : this.queue;
+         const tracksToPreload = [];
+ 
+         // Only preload the next 1 song to prevent data waste
+         for (let i = 1; i <= 1; i++) {
+-            const nextIndex = this.currentQueueIndex + i;
+-            if (nextIndex < currentQueue.length) {
+-                tracksToPreload.push({ track: currentQueue[nextIndex], index: nextIndex });
++            const index = this.currentQueueIndex + i;
++            if (index < currentQueue.length) {
++                tracksToPreload.push({ track: currentQueue[index], index });
+             }
+         }
+ 
+@@ -1438,6 +1452,11 @@ export class Player {
+     }
+ 
+     async playNext(recursiveCount = 0, options = {}) {
++        if (this._playNextTimeout) {
++            clearTimeout(this._playNextTimeout);
++            this._playNextTimeout = null;
++        }
++
+         try {
+             const currentQueue = this.getCurrentQueue();
+             const isLastTrack = this.currentQueueIndex >= currentQueue.length - 1;
+@@ -2532,12 +2551,32 @@ export class Player {
+         }
+     }
+ 
++    // FIX: Add handler for track end to force playNext and preload if missing
++    handleTrackEnded() {
++        const currentQueue = this.getCurrentQueue();
++        const hasNext = this.currentQueueIndex < currentQueue.length - 1 || this.radioEnabled || this.autoplayEnabled || (this.artistPopularTracksState && this.artistPopularTracksState.artistId && this.artistPopularTracksState.hasMore) || this.repeatMode === REPEAT_MODE.ALL;
++        
++        if (hasNext) {
++            const nextTrack = currentQueue[this.currentQueueIndex + 1];
++            if (nextTrack && !this.preloadCache.has(nextTrack.id)) {
++                this._pendingPreload = true;
++                this.checkPreloadConditions();
++            }
++
++            if (this._playNextTimeout) clearTimeout(this._playNextTimeout);
++            this._playNextTimeout = setTimeout(() => {
++                this.playNext().catch(console.error);
++            }, 500);
++        }
++    }
++
+     async waitForCanPlayOrTimeout(element = this.activeElement, timeoutMs = 10000) {
+         if (element.readyState >= 2) {
+             return true;
+         }
+ 
+-        return await new Promise((resolve, reject) => {
++        // FIX: Use Promise.race with 3000ms timeout to avoid silent hangs
++        const originalPromise = new Promise((resolve, reject) => {
+             const onCanPlay = () => {
+                 element.removeEventListener('canplay', onCanPlay);
+                 element.removeEventListener('error', onError);
+@@ -2550,18 +2589,23 @@ export class Player {
+             };
+             element.addEventListener('canplay', onCanPlay);
+             element.addEventListener('error', onError);
++        });
+ 
+-            // Timeout after 10 seconds. Treat as autoplay blocked when backgrounded (esp. iOS PWA).
++        const timeoutPromise = new Promise((resolve, reject) => {
+             setTimeout(() => {
+-                element.removeEventListener('canplay', onCanPlay);
+-                element.removeEventListener('error', onError);
+                 if (document.visibilityState === 'hidden' || (this.isIOS && this.isPwa)) {
+                     this.autoplayBlocked = true;
+                     resolve(false);
+-                    return;
++                } else {
++                    reject(new Error('Timeout waiting for audio to load'));
+                 }
+-                reject(new Error('Timeout waiting for audio to load'));
+-            }, timeoutMs);
++            }, 3000);
++        });
++
++        return await Promise.race([originalPromise, timeoutPromise]).catch(e => {
++            element.removeEventListener('canplay', () => {});
++            element.removeEventListener('error', () => {});
++            throw e;
+         });
+     }
+ 
+diff --git a/vite.config.ts b/vite.config.ts
+index 970f883..3741073 100644
+--- a/vite.config.ts
++++ b/vite.config.ts
+@@ -66,6 +66,18 @@ export default defineConfig((_options) => {
+                 // host: true,
+                 // allowedHosts: ['<your_tailscale_hostname>'], // e.g. pi5.tailf5f622.ts.net
+             },
++            proxy: {
++                '/api/stream': {
++                    target: 'https://monochrome.tf',
++                    changeOrigin: true,
++                    secure: false,
++                },
++                '/functions': {
++                    target: 'https://monochrome.tf',
++                    changeOrigin: true,
++                    secure: false,
++                }
++            }
+         },
+         // preview: {
+         //     host: true,

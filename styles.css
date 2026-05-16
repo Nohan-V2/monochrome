@@ -367,6 +367,29 @@
     --cover-filter: blur(50px) brightness(1.6) opacity(0.35);
 }
 
+/* FEATURE: Personal Dark Theme */
+:root[data-theme='personal-dark'] {
+    color-scheme: dark;
+
+    --background: #0a0a0a;
+    --foreground: #e4e4e7;
+    --card: #111111;
+    --card-foreground: #e4e4e7;
+    --primary: #6366f1;
+    --primary-foreground: #ffffff;
+    --secondary: #1c1c1e;
+    --secondary-foreground: #d4d4d8;
+    --muted: #1c1c1e;
+    --muted-foreground: #a1a1aa;
+    --border: #27272a;
+    --input: #1c1c1e;
+    --ring: #6366f1;
+    --highlight: #6366f1;
+    --highlight-rgb: 99, 102, 241;
+    --active-highlight: #818cf8;
+    --explicit-badge: #6366f1;
+}
+
 *,
 *::before,
 *::after {

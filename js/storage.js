@@ -541,6 +541,36 @@ export const gaplessPlaybackSettings = {
     },
 };
 
+export const crossfadeSettings = {
+    STORAGE_KEY_ENABLED: 'crossfade-enabled',
+    STORAGE_KEY_DURATION: 'crossfade-duration',
+
+    isEnabled() {
+        try {
+            return localStorage.getItem(this.STORAGE_KEY_ENABLED) === 'true';
+        } catch {
+            return false;
+        }
+    },
+
+    setEnabled(enabled) {
+        localStorage.setItem(this.STORAGE_KEY_ENABLED, enabled ? 'true' : 'false');
+    },
+
+    getDuration() {
+        try {
+            const val = parseFloat(localStorage.getItem(this.STORAGE_KEY_DURATION));
+            return isNaN(val) ? 2.5 : val;
+        } catch {
+            return 2.5;
+        }
+    },
+
+    setDuration(duration) {
+        localStorage.setItem(this.STORAGE_KEY_DURATION, duration);
+    },
+};
+
 export const fullscreenCoverClickSettings = {
     STORAGE_KEY: 'fullscreen-cover-click-action',
 
@@ -3420,6 +3450,7 @@ export const keyboardShortcuts = {
             description: 'Toggle track selection (individual)',
         },
         multiSelectRange: { key: 'shift', shift: true, ctrl: false, alt: false, description: 'Select track range' },
+        favorite: { key: 'f', shift: false, ctrl: false, alt: false, description: 'Toggle favorite' },
     },
 
     getShortcuts() {

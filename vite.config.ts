@@ -25,8 +25,21 @@ function getGitCommitHash() {
     }
 }
 
-export default defineConfig((_options) => {
+export default defineConfig((options) => {
     const commitHash = getGitCommitHash();
+
+    // TAILSCALE: detect network mode via `--mode network` or presence of env var
+    const isNetworkMode = (options && options.mode === 'network') || !!process.env.TAILSCALE_HOSTNAME;
+    // TAILSCALE: hostname to allow (replace <TAILSCALE_HOSTNAME> with your actual tailscale name or set env TAILSCALE_HOSTNAME)
+    const tailscaleHost = process.env.TAILSCALE_HOSTNAME || '<TAILSCALE_HOSTNAME>';
+
+    if (isNetworkMode) {
+        // TAILSCALE: print the full URL to use from the phone
+        const port = process.env.PORT || 5173;
+        const scheme = process.env.HTTPS && process.env.HTTPS !== 'false' ? 'https' : 'http';
+        console.log(`\nTAILSCALE: dev server network mode enabled`);
+        console.log(`TAILSCALE: Use this URL on your device: ${scheme}://${tailscaleHost}:${port}\n`);
+    }
 
     return {
         test: {
@@ -60,25 +73,44 @@ export default defineConfig((_options) => {
         optimizeDeps: {
             exclude: ['pocketbase', '@ffmpeg/ffmpeg', '@ffmpeg/util'],
         },
-        server: {
-            fs: {
-                allow: ['.', 'node_modules'],
-                // host: true,
-                // allowedHosts: ['<your_tailscale_hostname>'], // e.g. pi5.tailf5f622.ts.net
-            },
-            proxy: {
-                '/api/stream': {
-                    target: 'https://monochrome.tf',
-                    changeOrigin: true,
-                    secure: false,
+        // TAILSCALE: build server config and enable network options only when requested
+        // TAILSCALE: serverConfig will be injected below
+        server: (() => {
+            const serverConfig = {
+                fs: {
+                    allow: ['.', 'node_modules'],
                 },
-                '/functions': {
-                    target: 'https://monochrome.tf',
-                    changeOrigin: true,
-                    secure: false,
-                }
+                proxy: {
+                    '/api/stream': {
+                        target: 'https://monochrome.tf',
+                        changeOrigin: true,
+                        secure: false,
+                    },
+                    '/functions': {
+                        target: 'https://monochrome.tf',
+                        changeOrigin: true,
+                        secure: false,
+                    },
+                },
+            };
+
+            if (isNetworkMode) {
+                // TAILSCALE: allow external hosts to connect to dev server
+                serverConfig.host = true;
+                // TAILSCALE: enable CORS so device browsers can load assets without CORS errors
+                serverConfig.cors = true;
+                // TAILSCALE: add permissive headers for development over tailscale
+                serverConfig.headers = {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                    'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept',
+                };
+                // TAILSCALE: restrict allowedHosts if a specific hostname was provided
+                serverConfig.allowedHosts = [tailscaleHost];
             }
-        },
+
+            return serverConfig;
+        })(),
         // preview: {
         //     host: true,
         //     allowedHosts: ['<your_tailscale_hostname>'], // e.g. pi5.tailf5f622.ts.net

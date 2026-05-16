@@ -79,6 +79,16 @@ export class Player {
             isFetching: false,
             hasMore: true,
         };
+
+        this.audio1 = audioElement;
+        this.audio2 = new Audio();
+        this.audio2.crossOrigin = 'anonymous';
+        this.audio2.id = 'audio-player-2';
+        this.audio = this.audio1;
+        this.crossfadingAudio = null;
+        this.crossfadeInterval = null;
+        this._audio2EventsSetup = false;
+        this._crossfadeTriggeredForTrack = null;
     }
 
     static async initialize(audioElement, api, quality) {
@@ -566,6 +576,84 @@ export class Player {
             this._pendingPreload = false;
             void this._executePreloadNextTracks().catch(console.error);
         }
+
+        const { crossfadeSettings } = await import('./storage.js');
+        const isCrossfadeEnabled = crossfadeSettings.isEnabled();
+        const cfDuration = crossfadeSettings.getDuration();
+        
+        if (isCrossfadeEnabled && duration > 0 && timeRemaining <= cfDuration && this.currentTrack?.type !== 'video') {
+            if (this._crossfadeTriggeredForTrack !== this.currentTrack?.id) {
+                this._crossfadeTriggeredForTrack = this.currentTrack?.id;
+                this.startCrossfade(cfDuration);
+            }
+        }
+    }
+
+    startCrossfade(durationSec) {
+        if (!this.audio || this.currentTrack?.type === 'video') return;
+
+        const fadingOutAudio = this.audio;
+        this.audio = this.audio === this.audio1 ? this.audio2 : this.audio1;
+        this.crossfadingAudio = fadingOutAudio;
+
+        const fadeDuration = durationSec * 1000;
+        const steps = 30;
+        const stepTime = fadeDuration / steps;
+        const initialVolume = this.userVolume;
+
+        this.audio.volume = 0;
+        
+        if (this.crossfadeInterval) clearInterval(this.crossfadeInterval);
+
+        let currentStep = 0;
+        this.crossfadeInterval = setInterval(() => {
+            currentStep++;
+            const ratio = currentStep / steps;
+
+            if (this.crossfadingAudio) {
+                // Ensure old audio continues playing by directly connecting it to the destination
+                // since changeSource will have disconnected it from the EQ graph
+                if (audioContextManager && audioContextManager.audioContext) {
+                    const oldSource = audioContextManager.sources?.get(this.crossfadingAudio);
+                    if (oldSource) {
+                        try {
+                            oldSource.disconnect();
+                            oldSource.connect(audioContextManager.audioContext.destination);
+                        } catch (e) {}
+                    }
+                }
+                this.crossfadingAudio.volume = Math.max(0, initialVolume * (1 - ratio));
+            }
+
+            if (this.audio) {
+                this.audio.volume = Math.max(0, initialVolume * ratio);
+            }
+
+            if (currentStep >= steps) {
+                clearInterval(this.crossfadeInterval);
+                this.crossfadeInterval = null;
+                
+                if (this.crossfadingAudio) {
+                    this.crossfadingAudio.pause();
+                    this.crossfadingAudio.removeAttribute('src');
+                    if (audioContextManager && audioContextManager.sources) {
+                        const oldSource = audioContextManager.sources.get(this.crossfadingAudio);
+                        if (oldSource) {
+                            try { oldSource.disconnect(); } catch (e) {}
+                        }
+                    }
+                    this.crossfadingAudio = null;
+                }
+                
+                if (this.audio) {
+                    this.audio.volume = initialVolume;
+                    this.applyReplayGain();
+                }
+            }
+        }, stepTime);
+
+        // Advance to next track immediately
+        this.playNext(0, { crossfadeStarted: true }).catch(console.error);
     }
 
     async _executePreloadNextTracks() {
@@ -989,6 +1077,13 @@ export class Player {
             console.warn(`Attempted to play blocked track: ${track.title}. Skipping...`);
             await this.playNext();
             return;
+        }
+
+        if (!this._audio2EventsSetup && typeof this.setupMediaListeners === 'function') {
+            this.setupMediaListeners(this.audio2);
+            this.audio2.addEventListener('canplay', () => this.applyAudioEffects());
+            this.audio2.addEventListener('ended', () => this.handleTrackEnded());
+            this._audio2EventsSetup = true;
         }
 
         const previousActiveElement = this.activeElement;
