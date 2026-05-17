@@ -74,8 +74,22 @@ export const apiSettings = {
 
             if (!data) {
                 console.error('Failed to load instances from all uptime APIs:', fetchError);
+
+                // WORKER: Detect development mode and add local worker URL
+                const isDev =
+                    typeof window !== 'undefined' &&
+                    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+                const devInstances = isDev ? [{ url: 'http://localhost:8787', version: '2.7', isLocal: true }] : [];
+                const customWorker = {
+                    url: 'https://monochrome-api.YOUR_SUBDOMAIN.workers.dev',
+                    version: '2.7',
+                    isCustom: true,
+                };
+
                 this.defaultInstances = {
                     api: [
+                        customWorker,
+                        ...devInstances,
                         { url: 'https://hifi.geeked.wtf', version: '2.7' },
                         { url: 'https://eu-central.monochrome.tf', version: '2.7' },
                         { url: 'https://us-west.monochrome.tf', version: '2.7' },
@@ -89,6 +103,8 @@ export const apiSettings = {
                         { url: 'https://wolf.qqdl.site', version: '2.2' },
                     ],
                     streaming: [
+                        customWorker,
+                        ...devInstances,
                         { url: 'https://hifi.geeked.wtf', version: '2.7' },
                         { url: 'https://maus.qqdl.site', version: '2.6' },
                         { url: 'https://vogel.qqdl.site', version: '2.6' },
@@ -122,6 +138,27 @@ export const apiSettings = {
             } else if (groupedInstances.api.length > 0) {
                 groupedInstances.streaming = [...groupedInstances.api];
             }
+
+            const customWorker = {
+                url: 'https://monochrome-api.YOUR_SUBDOMAIN.workers.dev',
+                version: '2.7',
+                isCustom: true,
+            };
+            const isDev =
+                typeof window !== 'undefined' &&
+                (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+            const devInstances = isDev ? [{ url: 'http://localhost:8787', version: '2.7', isLocal: true }] : [];
+
+            const prependWorker = (list) => [
+                ...devInstances,
+                customWorker,
+                ...list.filter((item) =>
+                    typeof item === 'string' ? item !== customWorker.url : item.url !== customWorker.url
+                ),
+            ];
+
+            groupedInstances.api = prependWorker(groupedInstances.api);
+            groupedInstances.streaming = prependWorker(groupedInstances.streaming);
 
             if (data.qobuz && Array.isArray(data.qobuz)) {
                 groupedInstances.qobuz = data.qobuz;

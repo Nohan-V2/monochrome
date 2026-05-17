@@ -1,5 +1,8 @@
 // functions/track/[id].js
 
+// WORKER: Import CORS helpers
+import { getAllowedOrigins, handleCORSPreflight, addCORSHeaders } from '../cors-helper.js';
+
 function getTrackTitle(track, { fallback = 'Unknown Title' } = {}) {
     if (!track?.title) return fallback;
     return track?.version ? `${track.title} (${track.version})` : track.title;
@@ -176,6 +179,14 @@ const _isBlockedCopyright = (c) => {
 
 export async function onRequest(context) {
     const { request, params, env } = context;
+
+    // WORKER: Get allowed origins from environment
+    const allowedOrigins = getAllowedOrigins(env);
+
+    // WORKER: Handle CORS preflight requests
+    const preflightResponse = handleCORSPreflight(request, allowedOrigins);
+    if (preflightResponse) return preflightResponse;
+
     const userAgent = request.headers.get('User-Agent') || '';
     const isBot =
         /discordbot|twitterbot|facebookexternalhit|bingbot|googlebot|slurp|whatsapp|pinterest|slackbot|telegrambot|linkedinbot|mastodon|signal|snapchat|redditbot|skypeuripreview|viberbot|linebot|embedly|quora|outbrain|tumblr|duckduckbot|yandexbot|rogerbot|showyoubot|kakaotalk|naverbot|seznambot|mediapartners|adsbot|petalbot|applebot|ia_archiver/i.test(
@@ -264,9 +275,11 @@ export async function onRequest(context) {
                     </html>
                 `;
 
-                return new Response(metaHtml, {
+                const metaResponse = new Response(metaHtml, {
                     headers: { 'content-type': 'text/html;charset=UTF-8' },
                 });
+                // WORKER: Add CORS headers to meta tag response
+                return addCORSHeaders(metaResponse, request, allowedOrigins);
             } catch (error) {
                 console.error(`Error generating meta tags for track ${trackId}:`, error);
             }
@@ -275,5 +288,8 @@ export async function onRequest(context) {
 
     const url = new URL(request.url);
     url.pathname = '/';
-    return env.ASSETS.fetch(new Request(url, request));
+    const response = env.ASSETS.fetch(new Request(url, request));
+
+    // WORKER: Add CORS headers to response
+    return addCORSHeaders(await response, request, allowedOrigins);
 }

@@ -1,0 +1,12 @@
+name = "monochrome-api"
+compatibility_date = "2024-01-01"
+
+[vars]
+# Variables à définir
+# ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:4173,https://YOUR_VERCEL_DOMAIN.vercel.app"
+
+[env.development]
+vars = { ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:4173" }
+
+[env.production]
+vars = { ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:4173,https://YOUR_VERCEL_DOMAIN.vercel.app" }

@@ -81,13 +81,26 @@ export default defineConfig((options) => {
                     allow: ['.', 'node_modules'],
                 },
                 proxy: {
+                    // WORKER: Local Cloudflare Pages Functions development proxy
+                    '/functions': {
+                        target: 'http://127.0.0.1:8788',
+                        changeOrigin: true,
+                        secure: false,
+                        rewrite: (path) => path.replace(/^\/functions/, ''),
+                    },
+                    '/workers': {
+                        target: 'http://127.0.0.1:8788',
+                        changeOrigin: true,
+                        secure: false,
+                        rewrite: (path) => path.replace(/^\/workers/, ''),
+                    },
                     '/api/stream': {
                         target: 'https://monochrome.tf',
                         changeOrigin: true,
                         secure: false,
                     },
-                    '/functions': {
-                        target: 'https://monochrome.tf',
+                    '/api': {
+                        target: 'http://127.0.0.1:8788',
                         changeOrigin: true,
                         secure: false,
                     },

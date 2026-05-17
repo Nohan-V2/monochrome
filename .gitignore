@@ -4,6 +4,12 @@ dist
 *.local
 .vite
 .claude
+# APPWRITE: ensure local env isn't committed
+.env.local
+# Vercel env template
+.env.vercel
+# Cloudflare Workers environment variables
+.dev.vars
 # Docker
 .env
 # Neutralino

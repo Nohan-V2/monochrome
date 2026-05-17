@@ -1,5 +1,7 @@
 // js/accounts/auth.js
-import { authClient } from './config.js';
+// APPWRITE: use Appwrite Account client for authentication
+import { account } from '../appwrite.js';
+import { ID } from 'appwrite';
 
 function normalizeUser(user) {
     if (!user) return null;
@@ -20,21 +22,26 @@ export class AuthManager {
         }
 
         try {
-            // FIX: Surround call to auth.monochrome.tf with try/catch
-            // If it fails (CORS/502), proceed in disconnected mode
+            // APPWRITE: check current session using Appwrite Account APIs
+            // If it fails (network/CORS), proceed in disconnected mode
             let session = null;
             try {
-                const response = await authClient.getSession();
-                if (response && response.error) {
-                    console.warn('Auth server returned an error, ignoring:', response.error);
-                } else if (response && response.data) {
-                    session = response.data;
-                }
+                // APPWRITE: getSession('current') returns the active session if present
+                session = await account.getSession('current');
             } catch (fetchErr) {
-                console.warn('Network or CORS error connecting to auth.monochrome.tf:', fetchErr);
+                // APPWRITE: fallback to account.get() which returns the current user if logged in
+                try {
+                    const user = await account.get();
+                    this.user = normalizeUser(user);
+                } catch (innerErr) {
+                    console.warn('APPWRITE: session/user fetch failed:', fetchErr, innerErr);
+                }
             }
 
-            this.user = normalizeUser(session?.user);
+            if (session && session.user) {
+                this.user = normalizeUser(session.user);
+            }
+
             this.updateUI(this.user);
             this.authListeners.forEach((listener) => listener(this.user));
         } catch (err) {
@@ -53,11 +60,9 @@ export class AuthManager {
 
     async _signInSocial(provider) {
         try {
-            await authClient.signIn.social({
-                provider,
-                callbackURL: window.location.origin + '/index.html',
-                errorCallbackURL: window.location.origin + '/login.html',
-            });
+            // APPWRITE: create an OAuth2 session for the provider
+            // NOTE: Appwrite opens a redirect for OAuth providers
+            await account.createOAuth2Session(provider, window.location.origin + '/index.html');
         } catch (error) {
             console.error('Login failed:', error);
             alert(`Login failed: ${error.message}`);
@@ -79,10 +84,11 @@ export class AuthManager {
 
     async signInWithEmail(email, password) {
         try {
-            const { data, error } = await authClient.signIn.email({ email, password });
-            if (error) throw new Error(error.message);
-
-            this.user = normalizeUser(data.user);
+            // APPWRITE: create email/password session
+            const session = await account.createEmailPasswordSession(email, password);
+            // APPWRITE: fetch current user
+            const user = await account.get();
+            this.user = normalizeUser(user);
             this.updateUI(this.user);
             this.authListeners.forEach((listener) => listener(this.user));
             return this.user;
@@ -95,14 +101,13 @@ export class AuthManager {
 
     async signUpWithEmail(email, password) {
         try {
-            const { data, error } = await authClient.signUp.email({
-                email,
-                password,
-                name: email.split('@')[0],
-            });
-            if (error) throw new Error(error.message);
-
-            this.user = normalizeUser(data.user);
+            // APPWRITE: create a new account
+            const name = email.split('@')[0];
+            await account.create(ID.unique(), email, password, name);
+            // APPWRITE: after account creation, create a session
+            await account.createEmailPasswordSession(email, password);
+            const user = await account.get();
+            this.user = normalizeUser(user);
             this.updateUI(this.user);
             this.authListeners.forEach((listener) => listener(this.user));
             return this.user;
@@ -115,11 +120,8 @@ export class AuthManager {
 
     async sendPasswordReset(email) {
         try {
-            const { error } = await authClient.requestPasswordReset({
-                email,
-                redirectTo: window.location.origin + '/reset-password',
-            });
-            if (error) throw new Error(error.message);
+            // APPWRITE: create a password recovery (sends email)
+            await account.createRecovery(email, window.location.origin + '/reset-password');
             alert(`Password reset email sent to ${email}`);
         } catch (error) {
             console.error('Password reset failed:', error);
@@ -133,8 +135,8 @@ export class AuthManager {
             throw new Error('Passwords do not match');
         }
         try {
-            const { error } = await authClient.resetPassword({ newPassword: password, token });
-            if (error) throw new Error(error.message);
+            // APPWRITE: complete password recovery using the token
+            await account.updateRecovery(token, password);
         } catch (error) {
             console.error('Password reset failed:', error);
             throw error;
@@ -143,7 +145,8 @@ export class AuthManager {
 
     async signOut() {
         try {
-            await authClient.signOut();
+            // APPWRITE: delete the current session
+            await account.deleteSession('current');
             this.user = null;
             this.updateUI(null);
             this.authListeners.forEach((listener) => listener(null));

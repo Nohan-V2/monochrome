@@ -36,6 +36,7 @@ import { ThemeStore } from './themeStore.js';
 import './commandPalette.js';
 import { initTracker } from './tracker.js';
 import { initAnalytics } from './analytics.js';
+import { client } from './appwrite.js';
 import {
     parseCSV,
     parseJSPF,
@@ -128,16 +129,38 @@ async function fetchcontributors() {
         const con = document.querySelector('.about-contributors');
         if (!con) return;
 
+        // Build contributor elements safely (avoid inserting untrusted HTML)
         data.forEach((user) => {
-            const userDIV = document.createElement('div');
-            userDIV.innerHTML = `
-            <a href="${user.html_url}" target="_blank">
-            <img src="${user.avatar_url}&s=50" alt="${user.login}" width="50" height="50" style="border-radius: 50%;" loading="lazy">
-            <span>${user.login}</span>
-            <span class="contrib">Contributions: ${user.contributions}</span>
-            </a>
-            `;
-            con.appendChild(userDIV);
+            try {
+                const wrapper = document.createElement('div');
+                const a = document.createElement('a');
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.href = String(user.html_url || '#');
+
+                const img = document.createElement('img');
+                img.width = 50;
+                img.height = 50;
+                img.loading = 'lazy';
+                img.alt = String(user.login || 'contributor');
+                img.style.borderRadius = '50%';
+                if (user.avatar_url) img.src = String(user.avatar_url) + '&s=50';
+
+                const name = document.createElement('span');
+                name.textContent = String(user.login || 'unknown');
+
+                const contrib = document.createElement('span');
+                contrib.className = 'contrib';
+                contrib.textContent = `Contributions: ${Number(user.contributions || 0)}`;
+
+                a.appendChild(img);
+                a.appendChild(name);
+                a.appendChild(contrib);
+                wrapper.appendChild(a);
+                con.appendChild(wrapper);
+            } catch (err) {
+                console.warn('Failed to render contributor entry', err);
+            }
         });
     } catch (e) {
         const con = document.querySelector('.about-contributors-failed');
@@ -392,12 +415,24 @@ async function disablePwaForAuthGate() {
 
 async function uploadCoverImage(file) {
     try {
-        const response = await fetch(`https://worker.uploads.monochrome.qzz.io/${file.name}`, {
+        if (!file) throw new Error('No file provided');
+        // Enforce a 10MB size limit client-side to avoid unnecessary uploads
+        const maxBytes = 10 * 1024 * 1024;
+        if (file.size > maxBytes) throw new Error('File exceeds 10MB');
+
+        const uploadUrl = `https://worker.uploads.monochrome.qzz.io/${encodeURIComponent(file.name)}`;
+        const headers = {
+            'Content-Type': file.type || 'application/octet-stream',
+        };
+
+        // Allow configuration of API key via apiSettings to avoid hard-coded secrets
+        if (apiSettings && apiSettings.uploadKey) {
+            headers['x-api-key'] = apiSettings.uploadKey;
+        }
+
+        const response = await fetch(uploadUrl, {
             method: 'PUT',
-            headers: {
-                'x-api-key': 'if_youre_reading_this_fuck_off',
-                'Content-Type': file.type || 'application/octet-stream',
-            },
+            headers,
             body: file,
         });
 
@@ -406,7 +441,8 @@ async function uploadCoverImage(file) {
             throw new Error(`Upload failed: ${response.status}`);
         }
 
-        return `https://images.monochrome.qzz.io/${await response.text()}`;
+        const key = await response.text();
+        return `https://images.monochrome.qzz.io/${key}`;
     } catch (error) {
         console.error('Cover upload error:', error);
         throw error;
@@ -438,6 +474,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Initialize analytics
     initAnalytics();
+
+    // Verify Appwrite setup by pinging the backend
+    if (typeof client !== 'undefined' && client && typeof client.ping === 'function') {
+        client
+            .ping()
+            .then(() => console.info('Appwrite ping successful'))
+            .catch((e) => console.warn('Appwrite ping failed', e));
+    }
 
     // Populate commit info
     {
@@ -540,7 +584,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                             const metadata = await readTrackMetadata(file);
                             metadata.id = `local-${idCounter++}-${file.name}`;
                             tracks.push(metadata);
-                            UIRenderer.instance.renderLocalFiles(document.getElementById('library-local-container'));
                         }
                     } else if (entry.kind === 'directory') {
                         await scanBrowser(entry);
@@ -914,48 +957,62 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!file) return;
 
         // Validate file type
-        if (!file.type.startsWith('image/')) {
+        if (!file.type || !file.type.startsWith('image/')) {
             alert('Please select an image file');
             return;
         }
 
-        // Show uploading status
-        coverUploadStatus.style.display = 'block';
-        coverUploadText.textContent = 'Uploading...';
-        coverUploadBtn.disabled = true;
+        // Show uploading status (guard DOM nodes)
+        if (coverUploadStatus) coverUploadStatus.style.display = 'block';
+        if (coverUploadText) coverUploadText.textContent = 'Uploading...';
+        if (coverUploadBtn) coverUploadBtn.disabled = true;
 
         try {
             const publicUrl = await uploadCoverImage(file);
-            coverUrlInput.value = publicUrl;
-            coverUploadText.textContent = 'Done!';
-            coverUploadText.style.color = 'var(--success)';
+            if (coverUrlInput) coverUrlInput.value = publicUrl;
+            if (coverUploadText) {
+                coverUploadText.textContent = 'Done!';
+                coverUploadText.style.color = 'var(--success)';
+            }
 
-            setTimeout(() => {
-                coverUploadStatus.style.display = 'none';
-            }, 2000);
+            if (coverUploadStatus) {
+                setTimeout(() => {
+                    coverUploadStatus.style.display = 'none';
+                }, 2000);
+            }
         } catch (error) {
-            coverUploadText.textContent = 'Failed - try URL';
-            coverUploadText.style.color = 'var(--error)';
+            if (coverUploadText) {
+                coverUploadText.textContent = 'Failed - try URL';
+                coverUploadText.style.color = 'var(--error)';
+            }
             console.error('Upload failed:', error);
         } finally {
-            coverUploadBtn.disabled = false;
+            if (coverUploadBtn) coverUploadBtn.disabled = false;
         }
     });
 
     coverToggleUrlBtn?.addEventListener('click', () => {
         useUrlInput = !useUrlInput;
         if (useUrlInput) {
-            coverUploadBtn.style.flex = '0 0 auto';
-            coverUploadBtn.style.display = 'none';
-            coverUrlInput.style.display = 'block';
-            coverToggleUrlBtn.textContent = 'Upload';
-            coverToggleUrlBtn.title = 'Switch to file upload';
+            if (coverUploadBtn) {
+                coverUploadBtn.style.flex = '0 0 auto';
+                coverUploadBtn.style.display = 'none';
+            }
+            if (coverUrlInput) coverUrlInput.style.display = 'block';
+            if (coverToggleUrlBtn) {
+                coverToggleUrlBtn.textContent = 'Upload';
+                coverToggleUrlBtn.title = 'Switch to file upload';
+            }
         } else {
-            coverUploadBtn.style.flex = '1';
-            coverUploadBtn.style.display = 'flex';
-            coverUrlInput.style.display = 'none';
-            coverToggleUrlBtn.textContent = 'or URL';
-            coverToggleUrlBtn.title = 'Switch to URL input';
+            if (coverUploadBtn) {
+                coverUploadBtn.style.flex = '1';
+                coverUploadBtn.style.display = 'flex';
+            }
+            if (coverUrlInput) coverUrlInput.style.display = 'none';
+            if (coverToggleUrlBtn) {
+                coverToggleUrlBtn.textContent = 'or URL';
+                coverToggleUrlBtn.title = 'Switch to URL input';
+            }
         }
     });
 
@@ -2789,25 +2846,36 @@ document.addEventListener('DOMContentLoaded', async () => {
                     'header-spotify-auth',
                 ]) {
                     const btn = document.getElementById(id);
+                    if (!btn) continue;
                     const svg = btn.querySelector('svg');
-                    svg.style.filter = 'brightness(0) invert(1)';
-                    svg.style.transition = 'filter 0.15s';
+                    if (svg) {
+                        svg.style.filter = 'brightness(0) invert(1)';
+                        svg.style.transition = 'filter 0.15s';
+                    }
                     btn.addEventListener('mouseenter', () => {
-                        svg.style.filter = 'brightness(0) invert(0.5)';
+                        if (svg) svg.style.filter = 'brightness(0) invert(0.5)';
                     });
                     btn.addEventListener('mouseleave', () => {
-                        svg.style.filter = 'brightness(0) invert(1)';
+                        if (svg) svg.style.filter = 'brightness(0) invert(1)';
                     });
                 }
 
-                document.getElementById('header-google-auth').onclick = () => authManager.signInWithGoogle();
-                document.getElementById('header-github-auth').onclick = () => authManager.signInWithGitHub();
-                document.getElementById('header-discord-auth').onclick = () => authManager.signInWithDiscord();
-                document.getElementById('header-spotify-auth').onclick = () => authManager.signInWithSpotify();
-                document.getElementById('header-email-auth').onclick = () => {
-                    document.getElementById('email-auth-modal').classList.add('active');
-                    headerAccountDropdown.classList.remove('active');
-                };
+                const gAuth = document.getElementById('header-google-auth');
+                if (gAuth) gAuth.onclick = () => authManager.signInWithGoogle();
+                const ghAuth = document.getElementById('header-github-auth');
+                if (ghAuth) ghAuth.onclick = () => authManager.signInWithGitHub();
+                const dAuth = document.getElementById('header-discord-auth');
+                if (dAuth) dAuth.onclick = () => authManager.signInWithDiscord();
+                const sAuth = document.getElementById('header-spotify-auth');
+                if (sAuth) sAuth.onclick = () => authManager.signInWithSpotify();
+                const emailAuth = document.getElementById('header-email-auth');
+                if (emailAuth) {
+                    emailAuth.onclick = () => {
+                        const modal = document.getElementById('email-auth-modal');
+                        if (modal) modal.classList.add('active');
+                        if (headerAccountDropdown) headerAccountDropdown.classList.remove('active');
+                    };
+                }
             } else {
                 const data = await syncManager.getUserData();
                 const hasProfile = data && data.profile && data.profile.username;
@@ -2817,22 +2885,29 @@ document.addEventListener('DOMContentLoaded', async () => {
                         <button class="btn-secondary" id="header-view-profile">My Profile</button>
                         <button class="btn-secondary danger" id="header-sign-out">Sign Out</button>
                     `;
-                    document.getElementById('header-view-profile').onclick = () => {
-                        navigate(`/user/@${data.profile.username}`);
-                        headerAccountDropdown.classList.remove('active');
-                    };
+                    const viewProfileBtn = document.getElementById('header-view-profile');
+                    if (viewProfileBtn) {
+                        viewProfileBtn.onclick = () => {
+                            navigate(`/user/@${data.profile.username}`);
+                            if (headerAccountDropdown) headerAccountDropdown.classList.remove('active');
+                        };
+                    }
                 } else {
                     headerAccountDropdown.innerHTML = `
                         <button class="btn-primary" id="header-create-profile">Create Profile</button>
                         <button class="btn-secondary danger" id="header-sign-out">Sign Out</button>
                     `;
-                    document.getElementById('header-create-profile').onclick = async () => {
-                        openEditProfile().catch(console.error);
-                        headerAccountDropdown.classList.remove('active');
-                    };
+                    const createProfileBtn = document.getElementById('header-create-profile');
+                    if (createProfileBtn) {
+                        createProfileBtn.onclick = async () => {
+                            openEditProfile().catch(console.error);
+                            if (headerAccountDropdown) headerAccountDropdown.classList.remove('active');
+                        };
+                    }
                 }
 
-                document.getElementById('header-sign-out').onclick = () => authManager.signOut();
+                const signOutBtn = document.getElementById('header-sign-out');
+                if (signOutBtn) signOutBtn.onclick = () => authManager.signOut();
             }
         }
 

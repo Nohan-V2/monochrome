@@ -1,7 +1,14 @@
 // js/accounts/config.js
 import { createAuthClient } from 'https://esm.sh/better-auth/client';
 
+// APPWRITE: prefer Appwrite endpoint from env when present
 const getBaseURL = () => {
+    const env = import.meta.env.VITE_APPWRITE_ENDPOINT;
+    if (env) {
+        // APPWRITE: use env-provided endpoint
+        return env;
+    }
+
     const local = localStorage.getItem('monochrome-auth-url');
     if (local) return local;
 
